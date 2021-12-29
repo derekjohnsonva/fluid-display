@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { invoke } from '@tauri-apps/api/tauri'
 
 	// https://simeydotme.github.io/svelte-range-slider-pips/
 	import RangeSlider from 'svelte-range-slider-pips';
@@ -16,23 +17,26 @@
 	let fluid_height = 100;
 
 	let canvas;
+	const invoke_func = window.__TAURI__.invoke;
 
 	// draw a border around the canvas
 	onMount(() => {
+		// initialize the staggered grid
+		invoke_func('initialize_state', {
+			width: fluid_width,
+			height: fluid_height
+		}).then(console.log("initialized"));
 		const ctx = canvas.getContext('2d');
 		let frame = requestAnimationFrame(loop);
 
-		function loop(t) {
+		async function loop(t) {
 			frame = requestAnimationFrame(loop);
 
-			const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-			imageData.data[0] = 255;
-			imageData.data[3] = 255;
-
+			const imageData = await invoke_func('get_grid_colors', {}).then(() => console.log('got grid colors')).catch(e => console.log(e));
+				
 			ctx.putImageData(imageData, 0, 0);
+			await invoke_func('take_step', {}).then(() => console.log('took step')).catch(e => console.log(e));
 		}
-
 		return () => {
 			cancelAnimationFrame(frame);
 		};
