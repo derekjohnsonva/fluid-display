@@ -32,9 +32,10 @@
 		async function loop(t) {
 			frame = requestAnimationFrame(loop);
 
-			const imageData = await invoke_func('get_grid_colors', {}).then(() => console.log('got grid colors')).catch(e => console.log(e));
-				
-			ctx.putImageData(imageData, 0, 0);
+			const data_array = await invoke_func('get_grid_colors', {}).then(() => console.log('got grid colors')).catch(e => console.log(e));
+			console.log(typeof data_array);
+			// const imageData = new ImageData(data_array, fluid_width, fluid_height);
+			// ctx.putImageData(imageData, 0, 0);
 			await invoke_func('take_step', {}).then(() => console.log('took step')).catch(e => console.log(e));
 		}
 		return () => {

@@ -3,11 +3,10 @@
   all(not(debug_assertions), target_os = "macos"),
 )]
 
-use std::sync::Arc;
+use std::{sync::Arc, ops::DerefMut, borrow::{Borrow, BorrowMut}};
 
 use tauri::async_runtime::RwLock;
 
-use std::borrow::BorrowMut;
 mod diffusion;
 mod menu;
 mod simulation;
@@ -48,6 +47,13 @@ impl ConcurrentAppState {
     lock.info.width = width;
     lock.info.height = height;
   }
+
+  pub async fn simulate_step(&self) -> Result<(), String> {
+    let mut lock = self.inner.write().await;
+    let mut grid = lock.grid.unwrap().borrow_mut();
+    simulation::simulate_step(grid, 1.0, &lock.info);
+    Ok(())
+  }
 }
 fn main() {
   println!("Hello, world!");
@@ -66,7 +72,7 @@ fn main() {
 #[tauri::command]
 async fn initialize_state(width: usize, height: usize, state: tauri::State<'_, ConcurrentAppState>) -> Result<(), String> {
   println!("initialize_state");
-  if state.inner.read().await.grid.is_none() {
+  if state.inner.read().await.grid.is_some() {
     return Err("Grid already initialized".to_string());
   }
   state.update_grid_size(width, height).await;
@@ -80,26 +86,25 @@ async fn get_grid_colors(state: tauri::State<'_, ConcurrentAppState>) -> Result<
   let negative_color = utils::Color {r: 0., g: 178./255., b: 1.}; // blue
   let lock = state.inner.read().await;
   if lock.grid.is_none() {
-    return Err("Grid not initialized".to_string());
+    return Err("Grid not initialized while trying to get grid colors".to_string());
   }
   let grid = lock.grid.as_ref().unwrap();
   let shape = grid.contents.shape();
   let height = shape[0];
   let width = shape[1];
   let mut colors: Vec<u8> = Vec::with_capacity(height * width * 4);
-  println!("adding colors with shape {:?}", grid.contents.shape());
+  // println!("adding colors with shape {:?}", grid.contents.shape());
   for row in 0..height {
     for col in 0..width {
       let val = grid.contents[(row, col)].clamp(-1., 1.);
       let color = utils::lerp_color(val, negative_color, positive_color);
       let color_index = row * width + col;
-      colors[color_index] = color.r as u8 * 255;
-      colors[color_index + 1] = color.g as u8 * 255;
-      colors[color_index + 2] = color.b as u8 * 255;
-      colors[color_index + 3] = 255;
+      colors.push(color.r as u8 * 255);
+      colors.push(color.g as u8 * 255);
+      colors.push(color.b as u8 * 255);
+      colors.push(255);
     }
   }
-  println!("colors added");
   Ok(colors)
 }
 
@@ -107,11 +112,12 @@ async fn get_grid_colors(state: tauri::State<'_, ConcurrentAppState>) -> Result<
 async fn take_step(state: tauri::State<'_, ConcurrentAppState>) -> Result<(), String> {
   let lock = state.inner.read().await;
   if lock.grid.is_none() {
-    return Err("Grid not initialized".to_string());
+    return Err("Grid not initialized while attempting to simulate step".to_string());
   }
   // TODO: Refactor this to not use clone
   let mut grid = lock.grid.as_ref().unwrap().clone();
   let info = lock.info.clone();
   simulation::simulate_step(&mut grid, 1.0, &info);
+
   Ok(())
 }
