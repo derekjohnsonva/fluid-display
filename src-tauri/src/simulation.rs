@@ -150,7 +150,6 @@ fn diffuse(
     }
 
     if let Some(diffuse) = fluid_info.viscosity {
-        println!("Diffusion!!!");
         diffusion::filter_array(
             &mut source_grid.x_flow,
             &mut dest_grid.x_flow,

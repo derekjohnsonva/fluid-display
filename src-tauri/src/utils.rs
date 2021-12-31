@@ -111,11 +111,11 @@ pub fn create_sprs(
 pub struct FluidInformation {
     pub width: usize,
     pub height: usize,
-    pub heat_transfer_rate: f32,
-    pub bouyancy: f32,
+    pub heat_transfer_rate: f32, // Ranges from 0 to 1
+    pub bouyancy: f32, // Ranges from 0 - 3
     pub temp_max: f32,
-    pub diffuse: Option<f32>,
-    pub viscosity: Option<f32>,
+    pub diffuse: Option<f32>, // Ranges from 0 - 3
+    pub viscosity: Option<f32>, // Ranges from 0 - 3
     pub subsample: Option<u32>,
     pub confine: bool,
 }
@@ -125,9 +125,9 @@ impl FluidInformation {
         Self {
             width: 0,
             height: 0,
-            heat_transfer_rate: 0.,
-            bouyancy: 0.,
-            temp_max: 0.,
+            heat_transfer_rate: 0.05,
+            bouyancy: 2.0,
+            temp_max: 0.5,
             diffuse: None,
             viscosity: None,
             subsample: None,

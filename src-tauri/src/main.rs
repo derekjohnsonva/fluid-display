@@ -1,9 +1,6 @@
 // target_os: linux, macos, windows
-#![cfg_attr(
-  all(not(debug_assertions), target_os = "macos"),
-)]
-
-use std::{sync::Arc, ops::DerefMut, borrow::{Borrow, BorrowMut}};
+#![cfg_attr(all(not(debug_assertions), target_os = "macos"),)]
+use std::sync::Arc;
 
 use tauri::async_runtime::RwLock;
 
@@ -14,8 +11,8 @@ mod staggered_grid;
 mod utils;
 
 #[derive(Debug, Clone)]
-struct AppState{
-	pub info: utils::FluidInformation,
+struct AppState {
+  pub info: utils::FluidInformation,
   pub grid: Option<staggered_grid::StaggeredGrid>,
 }
 
@@ -49,20 +46,44 @@ impl ConcurrentAppState {
   }
 
   pub async fn simulate_step(&self) -> Result<(), String> {
-    let mut lock = self.inner.write().await;
-    let mut grid = lock.grid.unwrap().borrow_mut();
-    simulation::simulate_step(grid, 1.0, &lock.info);
+    //TODO: This should be done without cloning
+    let mut grid = self.inner.read().await.grid.as_ref().unwrap().clone();
+    simulation::simulate_step(&mut grid, 1.0, &self.inner.read().await.info);
+    self.inner.write().await.grid = Some(grid);
     Ok(())
+  }
+  pub async fn update_heat_transfer(&self, new_ht_rate: f32) {
+    self.inner.write().await.info.heat_transfer_rate = new_ht_rate;
+  }
+  pub async fn update_bouyancy(&self, new_bouyancy: f32) {
+    self.inner.write().await.info.bouyancy = new_bouyancy;
+  }
+  pub async fn update_diffusion(&self, new_diffusion: f32) {
+    if new_diffusion > 0. {
+      self.inner.write().await.info.diffuse = Some(new_diffusion);
+    } else {
+      self.inner.write().await.info.diffuse = None;
+    }
+  }
+  pub async fn update_viscosity(&self, new_viscosity: f32) {
+    if new_viscosity > 0. {
+      self.inner.write().await.info.viscosity = Some(new_viscosity);
+    } else {
+      self.inner.write().await.info.viscosity = None;
+    }
   }
 }
 fn main() {
-  println!("Hello, world!");
   tauri::Builder::default()
     .manage(ConcurrentAppState::new())
     .invoke_handler(tauri::generate_handler![
       initialize_state,
       get_grid_colors,
       take_step,
+      update_heat_transfer,
+      update_bouyancy,
+      update_diffusion,
+      update_viscosity,
     ])
     .menu(menu::mainmenu())
     .run(tauri::generate_context!())
@@ -70,20 +91,31 @@ fn main() {
 }
 
 #[tauri::command]
-async fn initialize_state(width: usize, height: usize, state: tauri::State<'_, ConcurrentAppState>) -> Result<(), String> {
-  println!("initialize_state");
+async fn initialize_state(
+  width: usize,
+  height: usize,
+  state: tauri::State<'_, ConcurrentAppState>,
+) -> Result<(), String> {
   if state.inner.read().await.grid.is_some() {
     return Err("Grid already initialized".to_string());
   }
   state.update_grid_size(width, height).await;
-  println!("initialize_state done");
   Ok(())
 }
 #[tauri::command]
 async fn get_grid_colors(state: tauri::State<'_, ConcurrentAppState>) -> Result<Vec<u8>, String> {
   //TODO: Refactor this to be a state variable
-  let positive_color = utils::Color {r: 1., g: 0., b: 0.}; // red
-  let negative_color = utils::Color {r: 0., g: 178./255., b: 1.}; // blue
+  // println!("starting grid colors");
+  let positive_color = utils::Color {
+    r: 1.,
+    g: 0.,
+    b: 0.,
+  }; // red
+  let negative_color = utils::Color {
+    r: 0.,
+    g: 178. / 255.,
+    b: 1.,
+  }; // blue
   let lock = state.inner.read().await;
   if lock.grid.is_none() {
     return Err("Grid not initialized while trying to get grid colors".to_string());
@@ -98,26 +130,56 @@ async fn get_grid_colors(state: tauri::State<'_, ConcurrentAppState>) -> Result<
     for col in 0..width {
       let val = grid.contents[(row, col)].clamp(-1., 1.);
       let color = utils::lerp_color(val, negative_color, positive_color);
-      let color_index = row * width + col;
-      colors.push(color.r as u8 * 255);
-      colors.push(color.g as u8 * 255);
-      colors.push(color.b as u8 * 255);
+      colors.push((color.r * 255.) as u8);
+      colors.push((color.g * 255.) as u8);
+      colors.push((color.b * 255.) as u8);
       colors.push(255);
     }
   }
+  println!("got grid colors");
   Ok(colors)
 }
 
 #[tauri::command]
 async fn take_step(state: tauri::State<'_, ConcurrentAppState>) -> Result<(), String> {
-  let lock = state.inner.read().await;
-  if lock.grid.is_none() {
-    return Err("Grid not initialized while attempting to simulate step".to_string());
-  }
-  // TODO: Refactor this to not use clone
-  let mut grid = lock.grid.as_ref().unwrap().clone();
-  let info = lock.info.clone();
-  simulation::simulate_step(&mut grid, 1.0, &info);
+  state.simulate_step().await;
+  println!("took step");
+  Ok(())
+}
 
+#[tauri::command]
+async fn update_heat_transfer(
+  state: tauri::State<'_, ConcurrentAppState>,
+  new_val: f32,
+) -> Result<(), String> {
+  state.update_heat_transfer(new_val).await;
+  println!("updated heat transfer");
+  Ok(())
+}
+#[tauri::command]
+async fn update_bouyancy(
+  state: tauri::State<'_, ConcurrentAppState>,
+  new_val: f32,
+) -> Result<(), String> {
+  state.update_bouyancy(new_val).await;
+  println!("updated heat transfer");
+  Ok(())
+}
+#[tauri::command]
+async fn update_diffusion(
+  state: tauri::State<'_, ConcurrentAppState>,
+  new_val: f32,
+) -> Result<(), String> {
+  state.update_diffusion(new_val).await;
+  println!("updated heat transfer");
+  Ok(())
+}
+#[tauri::command]
+async fn update_viscosity(
+  state: tauri::State<'_, ConcurrentAppState>,
+  new_val: f32,
+) -> Result<(), String> {
+  state.update_viscosity(new_val).await;
+  println!("updated heat transfer");
   Ok(())
 }
